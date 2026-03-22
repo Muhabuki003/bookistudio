@@ -751,7 +751,7 @@
       <div class="contact-detail-icon">in</div>LinkedIn — Adrien Muhabuki
     </a>
   </div>
-  <form class="contact-form" onsubmit="handleSubmit(event)">
+  <form class="contact-form" id="contactForm" onsubmit="handleSubmit(event)">
     <div class="form-row">
       <div class="form-group"><input type="text" id="name" placeholder=" " required/><label for="name">Your Name</label></div>
       <div class="form-group"><input type="email" id="email" placeholder=" " required/><label for="email">Email Address</label></div>
@@ -1285,9 +1285,11 @@ function clearAll() {
 }
 
 // ---- UPDATED FORM SUBMIT ----
-function handleSubmit(e) {
+async function handleSubmit(e) {
   e.preventDefault();
   const btn = document.getElementById('submitBtn');
+  const form = e.target;
+
   const inquiry = {
     id: Date.now(),
     date: new Date().toISOString(),
@@ -1298,12 +1300,44 @@ function handleSubmit(e) {
     message: document.getElementById('message').value,
     read: false
   };
+
+  // Always save to localStorage for admin panel
   const existing = JSON.parse(localStorage.getItem('bookistudio_inquiries') || '[]');
   existing.unshift(inquiry);
   localStorage.setItem('bookistudio_inquiries', JSON.stringify(existing));
-  btn.textContent = 'Message Sent ✓';
-  btn.style.background = '#2a6a3a';
-  setTimeout(() => { btn.textContent = 'Send Message →'; btn.style.background = ''; e.target.reset(); }, 3000);
+
+  // Send to Formspree so it hits your email
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+
+  try {
+    const res = await fetch('https://formspree.io/f/xvzwjonz', {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:     inquiry.name,
+        email:    inquiry.email,
+        business: inquiry.business,
+        budget:   inquiry.budget,
+        message:  inquiry.message
+      })
+    });
+    if (res.ok) {
+      btn.textContent = 'Message Sent ✓';
+      btn.style.background = '#2a6a3a';
+      form.reset();
+    } else {
+      throw new Error('Formspree error');
+    }
+  } catch(err) {
+    btn.textContent = 'Saved — check admin';
+    btn.style.background = '#8a6a10';
+  }
+
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  setTimeout(() => { btn.textContent = 'Send Message →'; btn.style.background = ''; }, 3500);
 }
 </script>
 
