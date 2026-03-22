@@ -466,6 +466,10 @@
     pointer-events: none; z-index: 9997; opacity: 0.4;
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const _sb = supabase.createClient('https://nrxbexwzshsnlxyqqgag.supabase.co', 'sb_publishable_2VZYAfDvZjo-oMLezIOodQ_qZWiiAKt');
+</script>
 </head>
 <body>
 
@@ -1164,11 +1168,20 @@ document.addEventListener('keydown', e => {
   }
 });
 
-function getInquiries() {
-  return JSON.parse(localStorage.getItem('bookistudio_inquiries') || '[]');
+async function getInquiries() {
+  const { data, error } = await _sb.from('inquiries').select('*').order('created_at', { ascending: false });
+  if (error) { console.error(error); return []; }
+  // Normalize: map created_at -> date for display
+  return (data || []).map(r => ({ ...r, date: r.created_at }));
 }
-function saveInquiries(arr) {
-  localStorage.setItem('bookistudio_inquiries', JSON.stringify(arr));
+async function saveRead(id, readVal) {
+  await _sb.from('inquiries').update({ read: readVal }).eq('id', id);
+}
+async function deleteInquiry(id) {
+  await _sb.from('inquiries').delete().eq('id', id);
+}
+async function clearAllInquiries() {
+  await _sb.from('inquiries').delete().neq('id', 0);
 }
 
 function setFilter(f, btn) {
@@ -1184,8 +1197,9 @@ function formatDate(iso) {
     + ' · ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
 }
 
-function renderInquiries() {
-  const all = getInquiries();
+async function renderInquiries() {
+  document.getElementById('inquiryList').innerHTML = '<div class="admin-empty"><div class="admin-empty-icon">⏳</div>Loading inquiries...</div>';
+  const all = await getInquiries();
   const search = document.getElementById('adminSearch').value.toLowerCase();
   const unread = all.filter(i => !i.read).length;
 
@@ -1257,32 +1271,31 @@ function escHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function toggleCard(id) {
+async function toggleCard(id) {
   const card = document.getElementById('card-'+id);
   card.classList.toggle('expanded');
-  // auto mark read on open
   if (card.classList.contains('expanded')) {
-    const all = getInquiries();
+    const all = await getInquiries();
     const inq = all.find(i => i.id === id);
-    if (inq && !inq.read) { inq.read = true; saveInquiries(all); renderInquiries(); }
+    if (inq && !inq.read) { await saveRead(id, true); renderInquiries(); }
   }
 }
 
-function toggleRead(id) {
-  const all = getInquiries();
+async function toggleRead(id) {
+  const all = await getInquiries();
   const inq = all.find(i => i.id === id);
-  if (inq) { inq.read = !inq.read; saveInquiries(all); renderInquiries(); }
+  if (inq) { await saveRead(id, !inq.read); renderInquiries(); }
 }
 
-function deleteInq(id) {
+async function deleteInq(id) {
   if (!confirm('Delete this inquiry?')) return;
-  saveInquiries(getInquiries().filter(i => i.id !== id));
+  await deleteInquiry(id);
   renderInquiries();
 }
 
-function clearAll() {
+async function clearAll() {
   if (!confirm('Delete ALL inquiries? This cannot be undone.')) return;
-  localStorage.removeItem('bookistudio_inquiries');
+  await clearAllInquiries();
   renderInquiries();
 }
 
@@ -1292,49 +1305,41 @@ async function handleSubmit(e) {
   const btn = document.getElementById('submitBtn');
   const form = e.target;
 
-  const inquiry = {
-    id: Date.now(),
-    date: new Date().toISOString(),
-    name: document.getElementById('name').value,
-    email: document.getElementById('email').value,
-    business: document.getElementById('business').value || '—',
-    budget: document.getElementById('budget').value || '—',
-    message: document.getElementById('message').value,
-    read: false
-  };
-
-  // Always save to localStorage for admin panel
-  const existing = JSON.parse(localStorage.getItem('bookistudio_inquiries') || '[]');
-  existing.unshift(inquiry);
-  localStorage.setItem('bookistudio_inquiries', JSON.stringify(existing));
-
-  // Send to Formspree so it hits your email
   btn.textContent = 'Sending...';
   btn.disabled = true;
   btn.style.opacity = '0.7';
 
+  const inquiry = {
+    name:     document.getElementById('name').value,
+    email:    document.getElementById('email').value,
+    business: document.getElementById('business').value || '—',
+    budget:   document.getElementById('budget').value || '—',
+    message:  document.getElementById('message').value,
+    read:     false
+  };
+
+  let success = false;
+
   try {
-    const res = await fetch('https://formspree.io/f/xvzwjonz', {
+    // 1. Save to Supabase (works on all devices)
+    const { error: dbErr } = await _sb.from('inquiries').insert([inquiry]);
+    if (dbErr) throw dbErr;
+
+    // 2. Send email via Formspree
+    await fetch('https://formspree.io/f/xvzwjonz', {
       method: 'POST',
       headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name:     inquiry.name,
-        email:    inquiry.email,
-        business: inquiry.business,
-        budget:   inquiry.budget,
-        message:  inquiry.message
-      })
+      body: JSON.stringify(inquiry)
     });
-    if (res.ok) {
-      btn.textContent = 'Message Sent ✓';
-      btn.style.background = '#2a6a3a';
-      form.reset();
-    } else {
-      throw new Error('Formspree error');
-    }
+
+    success = true;
+    btn.textContent = 'Message Sent ✓';
+    btn.style.background = '#2a6a3a';
+    form.reset();
   } catch(err) {
-    btn.textContent = 'Saved — check admin';
-    btn.style.background = '#8a6a10';
+    console.error('Submission error:', err);
+    btn.textContent = 'Something went wrong';
+    btn.style.background = '#8a2a1a';
   }
 
   btn.disabled = false;
