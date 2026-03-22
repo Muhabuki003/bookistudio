@@ -1154,12 +1154,14 @@ function closeAdmin() {
   document.body.style.overflow = '';
 }
 
-// Secret shortcut: press Shift+A+D
-let adminKeys = [];
+// Secret shortcut: Shift + Ctrl + A
 document.addEventListener('keydown', e => {
-  adminKeys.push(e.key);
-  if (adminKeys.length > 3) adminKeys.shift();
-  if (adminKeys.join('').toLowerCase().includes('ad')) openAdmin();
+  if (e.shiftKey && e.ctrlKey && e.key === 'A') {
+    // Don't trigger if user is typing in a field
+    const tag = document.activeElement.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    openAdmin();
+  }
 });
 
 function getInquiries() {
